@@ -4898,6 +4898,22 @@ describe('input', function() {
         ['http://example.com:9999/``', true]
       ];
 
+      it('should validate long urls quickly (CVE-2023-26118)', function() {
+        var slashes = new Array(50001).join('/');
+        var inputs = [
+          'a:' + slashes + ' ',
+          'a:' + slashes + '@ ',
+          'a:' + new Array(30001).join('/a:') + ' '
+        ];
+        var start = Date.now();
+        forEach(inputs, function(url) {
+          /* global URL_REGEXP: false */
+          expect(URL_REGEXP.test(url)).toBe(false);
+        });
+        expect(URL_REGEXP.test('scheme:' + slashes + 'example.com')).toBe(true);
+        expect(Date.now() - start).toBeLessThan(1000);
+      });
+
       they('should validate url: $prop', urls, function(item) {
         var url = item[0];
         var valid = item[1];

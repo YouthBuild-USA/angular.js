@@ -21,8 +21,12 @@ var ISO_DATE_REGEXP = /^\d{4,}-[01]\d-[0-3]\dT[0-2]\d:[0-5]\d:[0-5]\d\.\d+(?:[+-
 //   7. Path
 //   8. Query
 //   9. Fragment
-//                 1111111111111111 222   333333    44444        55555555555555555555555     666     77777777     8888888     999
-var URL_REGEXP = /^[a-z][a-z\d.+-]*:\/*(?:[^:@]+(?::[^@]+)?@)?(?:[^\s:/?#]+|\[[a-f\d:]+])(?::\d+)?(?:\/[^?#]*)?(?:\?[^#]*)?(?:#.*)?$/i;
+//
+// The slashes after the scheme are matched with `(?=(\/+))\1`, which cannot give back slashes,
+// so the username part cannot try every split of a long run of slashes (CVE-2023-26118).
+// The second branch keeps the old behaviour for urls with no slashes after the scheme.
+// eslint-disable-next-line max-len
+var URL_REGEXP = /^[a-z][a-z\d.+-]*:(?:(?=(\/+))\1(?:[^:@]*(?::[^@]+)?@)?|(?:[^:@]+(?::[^@]+)?@)?)(?:[^\s:/?#]+|\[[a-f\d:]+])(?::\d+)?(?:\/[^?#]*)?(?:\?[^#]*)?(?:#.*)?$/i;
 // eslint-disable-next-line max-len
 var EMAIL_REGEXP = /^(?=.{1,254}$)(?=.{1,64}@)[-!#$%&'*+/0-9=?A-Z^_`a-z{|}~]+(\.[-!#$%&'*+/0-9=?A-Z^_`a-z{|}~]+)*@[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
 var NUMBER_REGEXP = /^\s*(-|\+)?(\d+|(\d*(\.\d*)))([eE][+-]?\d+)?\s*$/;
