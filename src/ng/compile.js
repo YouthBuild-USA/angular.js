@@ -3911,6 +3911,10 @@ function $CompileProvider($provide, $$sanitizeUriProvider) {
           return $sce.RESOURCE_URL;
         }
         return $sce.MEDIA_URL;
+      } else if (nodeName === 'image' && (attrNormalizedName === 'href' ||
+                                          attrNormalizedName === 'ngHref')) {
+        // SVG <image> loads its image from `href` as well as `xlink:href` (CVE-2025-0716)
+        return $sce.MEDIA_URL;
       } else if (attrNormalizedName === 'xlinkHref') {
         // Some xlink:href are okay, most aren't
         if (nodeName === 'image') return $sce.MEDIA_URL;

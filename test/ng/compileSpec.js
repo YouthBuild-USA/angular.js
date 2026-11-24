@@ -11779,6 +11779,59 @@ describe('$compile', function() {
       });
     });
 
+    it('should use $$sanitizeUri for href and ng-href on svg image (CVE-2025-0716)', function() {
+      var $$sanitizeUri = jasmine.createSpy('$$sanitizeUri').and.callFake(function(uri) {
+        return 'https://clean.example.org/' + uri.length;
+      });
+      module(function($provide) {
+        $provide.value('$$sanitizeUri', $$sanitizeUri);
+      });
+      inject(function($compile, $rootScope) {
+        $rootScope.testUrl = 'evil:a';
+
+        element = $compile('<svg><image href="{{ testUrl }}"></image></svg>')($rootScope);
+        $rootScope.$apply();
+        expect(element.find('image').attr('href')).toBe('https://clean.example.org/6');
+        expect($$sanitizeUri).toHaveBeenCalledWith('evil:a', true);
+
+        $$sanitizeUri.calls.reset();
+        element = $compile('<svg><image ng-href="{{ testUrl }}"></image></svg>')($rootScope);
+        $rootScope.$apply();
+        expect(element.find('image').attr('xlink:href')).toBe('https://clean.example.org/6');
+        expect($$sanitizeUri).toHaveBeenCalledWith('evil:a', true);
+
+        // Later changes are sanitized too
+        $$sanitizeUri.calls.reset();
+        $rootScope.testUrl = 'evil:changed';
+        $rootScope.$apply();
+        expect(element.find('image').attr('xlink:href')).toBe('https://clean.example.org/12');
+        expect($$sanitizeUri).toHaveBeenCalledWith('evil:changed', true);
+      });
+    });
+
+    it('should sanitize href, ng-href and xlink:href on svg image with the default lists (CVE-2025-0716)',
+      inject(function($compile, $rootScope) {
+        element = $compile('<svg>' +
+          '<image class="a" href="{{ testUrl }}"></image>' +
+          '<image class="b" ng-href="{{ testUrl }}"></image>' +
+          '<image class="c" xlink:href="{{ testUrl }}"></image>' +
+          '<image class="d" ng-attr-href="{{ testUrl }}"></image>' +
+          '</svg>')($rootScope);
+        $rootScope.testUrl = 'javascript:alert(1)';
+        $rootScope.$apply();
+        var images = element.find('image');
+        expect(images.eq(0).attr('href')).toBe('unsafe:javascript:alert(1)');
+        expect(images.eq(1).attr('xlink:href')).toBe('unsafe:javascript:alert(1)');
+        expect(images.eq(2).attr('xlink:href')).toBe('unsafe:javascript:alert(1)');
+        expect(images.eq(3).attr('href')).toBe('unsafe:javascript:alert(1)');
+
+        $rootScope.testUrl = 'http://example.com/image.png';
+        $rootScope.$apply();
+        expect(images.eq(0).attr('href')).toBe('http://example.com/image.png');
+        expect(images.eq(1).attr('xlink:href')).toBe('http://example.com/image.png');
+      })
+    );
+
     it('should require a RESOURCE_URL context for xlink:href by if not on an anchor or image', function() {
       inject(function($compile, $rootScope) {
         element = $compile('<svg><whatever xlink:href="{{ testUrl }}"></whatever></svg>')($rootScope);
