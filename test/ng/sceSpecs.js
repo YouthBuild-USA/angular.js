@@ -362,6 +362,13 @@ describe('SCE', function() {
         expect(adjustMatcher(/^a.*b$/).exec('-a.b-')).toBeNull();
       });
 
+      it('should anchor every alternative of a regex', function() {
+        expect(adjustMatcher(/a|b/).exec('a')).not.toBeNull();
+        expect(adjustMatcher(/a|b/).exec('b')).not.toBeNull();
+        expect(adjustMatcher(/a|b/).exec('ax')).toBeNull();
+        expect(adjustMatcher(/a|b/).exec('xb')).toBeNull();
+      });
+
       it('should should match * and **', function() {
         expect(adjustMatcher('*://*.example.com/**').exec('http://www.example.com/path')).not.toBeNull();
       });
@@ -398,6 +405,27 @@ describe('SCE', function() {
           // Prefix not allowed even though original regex does not contain a leading ^.
           expect(function() { $sce.getTrustedResourceUrl('xhttp://example.com/foo'); }).toThrowMinErr(
             '$sce', 'insecurl', 'Blocked loading resource from url not allowed by $sceDelegate policy.  URL: xhttp://example.com/foo');
+        }
+      ));
+
+      it('should match the entire url when the regex contains alternation (CVE-2026-11998)', runTest(
+        {
+          trustedUrls: [/https:\/\/a\.example\.com\/.*|https:\/\/b\.example\.com\/.*/],
+          bannedUrls: [/https:\/\/a\.example\.com\/banned|https:\/\/a\.example\.com\/blocked/]
+        }, function($sce) {
+          expect($sce.getTrustedResourceUrl('https://a.example.com/foo')).toEqual('https://a.example.com/foo');
+          expect($sce.getTrustedResourceUrl('https://b.example.com/foo')).toEqual('https://b.example.com/foo');
+          // First alternative must not be allowed to match only the start of the url.
+          expect(function() { $sce.getTrustedResourceUrl('https://evil.com/?https://a.example.com/'); }).toThrowMinErr(
+            '$sce', 'insecurl', 'Blocked loading resource from url not allowed by $sceDelegate policy.  URL: https://evil.com/?https://a.example.com/');
+          // Last alternative must not be allowed to match only the end of the url.
+          expect(function() { $sce.getTrustedResourceUrl('https://evil.com/https://b.example.com/x'); }).toThrowMinErr(
+            '$sce', 'insecurl', 'Blocked loading resource from url not allowed by $sceDelegate policy.  URL: https://evil.com/https://b.example.com/x');
+          // Banned list with alternation still blocks both alternatives.
+          expect(function() { $sce.getTrustedResourceUrl('https://a.example.com/banned'); }).toThrowMinErr(
+            '$sce', 'insecurl', 'Blocked loading resource from url not allowed by $sceDelegate policy.  URL: https://a.example.com/banned');
+          expect(function() { $sce.getTrustedResourceUrl('https://a.example.com/blocked'); }).toThrowMinErr(
+            '$sce', 'insecurl', 'Blocked loading resource from url not allowed by $sceDelegate policy.  URL: https://a.example.com/blocked');
         }
       ));
     });

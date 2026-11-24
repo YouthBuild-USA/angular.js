@@ -68,7 +68,9 @@ function adjustMatcher(matcher) {
     // The only other type of matcher allowed is a Regexp.
     // Match entire URL / disallow partial matches.
     // Flags are reset (i.e. no global, ignoreCase or multiline)
-    return new RegExp('^' + matcher.source + '$');
+    // The source is wrapped in a non-capturing group so that `^` and `$` apply to the whole
+    // pattern even when it contains alternation (`|`). (CVE-2026-11998)
+    return new RegExp('^(?:' + matcher.source + ')$');
   } else {
     throw $sceMinErr('imatcher',
         'Matchers may only be "self", string patterns or RegExp objects');
