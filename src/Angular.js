@@ -999,7 +999,10 @@ function copy(source, destination, maxDepth) {
         return new source.constructor(source.valueOf());
 
       case '[object RegExp]':
-        var re = new RegExp(source.source, source.toString().match(/[^/]*$/)[0]);
+        // Read the flags from after the last '/' without a regex, which could be slow on a long
+        // source (CVE-2023-26116).
+        var sourceString = source.toString();
+        var re = new RegExp(source.source, sourceString.slice(sourceString.lastIndexOf('/') + 1));
         re.lastIndex = source.lastIndex;
         return re;
 

@@ -74,6 +74,24 @@ describe('angular', function() {
       expect(copy(re).multiline).toBe(true);
     });
 
+    it('should copy RegExp with a long source quickly (CVE-2023-26116)', function() {
+      var re = new RegExp(new Array(50001).join('a') + '\\/b', 'gi');
+      var start = Date.now();
+      var reCopy = copy(re);
+      expect(Date.now() - start).toBeLessThan(500);
+      expect(reCopy.source).toBe(re.source);
+      expect(reCopy.global).toBe(true);
+      expect(reCopy.ignoreCase).toBe(true);
+      expect(reCopy.multiline).toBe(false);
+    });
+
+    it('should copy RegExp whose source contains slashes', function() {
+      var re = /a\/b\/c/m;
+      expect(copy(re).source).toBe(re.source);
+      expect(copy(re).multiline).toBe(true);
+      expect(copy(re).test('a/b/c')).toBe(true);
+    });
+
     it('should copy RegExp with lastIndex', function() {
       var re = /a+b+/g;
       var str = 'ab aabb';
