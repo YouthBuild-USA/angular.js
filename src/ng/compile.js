@@ -2039,6 +2039,9 @@ function $CompileProvider($provide, $$sanitizeUriProvider) {
     function($injector,   $interpolate,   $exceptionHandler,   $templateRequest,   $parse,
              $controller,   $rootScope,   $sce,   $animate) {
 
+    var SRCSET_WHITESPACE_REGEXP = /[ \t\n\f\r]/;
+    // A width (`100w`), height (`100h`) or pixel density (`1x`, `1.5x`, `2e1x`) descriptor.
+    var SRCSET_DESCRIPTOR_REGEXP = /^(?:\d+[wh]|(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?x)$/i;
     var SIMPLE_ATTR_NAME = /^\w/;
     var specialAttrHolder = window.document.createElement('div');
 
@@ -2094,38 +2097,124 @@ function $CompileProvider($provide, $$sanitizeUriProvider) {
       // `$sce.trustAsHtml` on the whole `img` tag and inject it into the DOM using the
       // `ng-bind-html` directive.
 
-      var result = '';
-
-      // first check if there are spaces because it's not the same pattern
       var trimmedSrcset = trim(value);
-      //                (   999x   ,|   999w   ,|   ,|,   )
-      var srcPattern = /(\s+\d+x\s*,|\s+\d+w\s*,|\s+,|,\s+)/;
-      var pattern = /\s/.test(trimmedSrcset) ? srcPattern : /(,)/;
 
-      // split srcset into tuple of uri and descriptor except for the last item
-      var rawUris = trimmedSrcset.split(pattern);
-
-      // for each tuples
-      var nbrUrisWith2parts = Math.floor(rawUris.length / 2);
-      for (var i = 0; i < nbrUrisWith2parts; i++) {
-        var innerIdx = i * 2;
-        // sanitize the uri
-        result += $sce.getTrustedMediaUrl(trim(rawUris[innerIdx]));
-        // add the descriptor
-        result += ' ' + trim(rawUris[innerIdx + 1]);
+      // Without whitespace, keep the old behaviour of treating every comma as a separator.
+      // Each part is sanitized and the parts are joined with ' ,' so that the browser reads
+      // them as separate image candidates.
+      if (!SRCSET_WHITESPACE_REGEXP.test(trimmedSrcset)) {
+        var parts = trimmedSrcset.split(',');
+        for (var p = 0; p < parts.length; p++) {
+          parts[p] = $sce.getTrustedMediaUrl(parts[p]);
+        }
+        return parts.join(' ,');
       }
 
-      // split the last item into uri and descriptor
-      var lastTuple = trim(rawUris[i * 2]).split(/\s/);
-
-      // sanitize the last uri
-      result += $sce.getTrustedMediaUrl(trim(lastTuple[0]));
-
-      // and add the last descriptor if any
-      if (lastTuple.length === 2) {
-        result += (' ' + trim(lastTuple[1]));
+      // Otherwise read the value the same way browsers do (the HTML "parse a srcset attribute"
+      // steps), so that every url the browser would load is sanitized, and keep only valid
+      // descriptors. This runs in linear time: the old regex split was slow on long runs of
+      // whitespace (CVE-2024-21490), and could leave a url inside a "descriptor" unsanitized
+      // (CVE-2024-8372, CVE-2024-8373).
+      var candidates = parseSrcset(trimmedSrcset);
+      var result = '';
+      for (var i = 0; i < candidates.length; i++) {
+        var candidate = candidates[i];
+        if (i > 0) {
+          // Keep the old output format: `url 1x,` and `url 1x ,` / `url ,` (space before the comma
+          // when there was one in the value, or when there are no descriptors).
+          result += (candidates[i - 1].spaceBeforeComma || !candidates[i - 1].descriptors.length) ? ' ,' : ',';
+        }
+        result += $sce.getTrustedMediaUrl(candidate.url);
+        if (candidate.descriptors.length) result += ' ' + candidate.descriptors.join(' ');
       }
       return result;
+    }
+
+    function isSrcsetWhitespace(ch) {
+      return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\f' || ch === '\r';
+    }
+
+    // Splits a srcset value into `{url, descriptors}` candidates, following the HTML standard
+    // (https://html.spec.whatwg.org/multipage/images.html#parse-a-srcset-attribute).
+    // Descriptors that are not a valid width, height or density are dropped.
+    function parseSrcset(input) {
+      var candidates = [];
+      var position = 0;
+      var length = input.length;
+      var start, url, descriptors, current, state, ch, spaceBeforeComma;
+
+      while (true) {
+        // Skip whitespace and commas between candidates.
+        while (position < length && (isSrcsetWhitespace(input.charAt(position)) || input.charAt(position) === ',')) {
+          position++;
+        }
+        if (position >= length) break;
+
+        // The url is the run of non-whitespace characters, without trailing commas.
+        start = position;
+        while (position < length && !isSrcsetWhitespace(input.charAt(position))) position++;
+        url = input.slice(start, position);
+        descriptors = [];
+        spaceBeforeComma = false;
+
+        if (url.charAt(url.length - 1) === ',') {
+          var urlEnd = url.length;
+          while (urlEnd > 0 && url.charAt(urlEnd - 1) === ',') urlEnd--;
+          url = url.slice(0, urlEnd);
+        } else {
+          // Read descriptors up to the next comma that is not inside parentheses.
+          current = '';
+          state = 'start';
+          while (position <= length) {
+            ch = position < length ? input.charAt(position) : '';
+            if (state === 'start') {
+              if (ch === '' || ch === ',') {
+                spaceBeforeComma = position > start + url.length;
+                position++;
+                break;
+              } else if (!isSrcsetWhitespace(ch)) {
+                state = 'descriptor';
+                continue;
+              }
+            } else if (state === 'descriptor') {
+              if (isSrcsetWhitespace(ch)) {
+                if (current) descriptors.push(current);
+                current = '';
+                state = 'after';
+              } else if (ch === '' || ch === ',') {
+                if (current) descriptors.push(current);
+                position++;
+                break;
+              } else {
+                if (ch === '(') state = 'parens';
+                current += ch;
+              }
+            } else if (state === 'parens') {
+              if (ch === '') {
+                descriptors.push(current);
+                position++;
+                break;
+              }
+              if (ch === ')') state = 'descriptor';
+              current += ch;
+            } else { // state === 'after'
+              if (ch === ',') spaceBeforeComma = true;
+              if (!isSrcsetWhitespace(ch)) {
+                state = 'descriptor';
+                continue;
+              }
+            }
+            position++;
+          }
+        }
+
+        var validDescriptors = [];
+        for (var d = 0; d < descriptors.length; d++) {
+          if (SRCSET_DESCRIPTOR_REGEXP.test(descriptors[d])) validDescriptors.push(descriptors[d]);
+        }
+        if (url) candidates.push({url: url, descriptors: validDescriptors, spaceBeforeComma: spaceBeforeComma});
+      }
+      return candidates;
     }
 
 
@@ -2264,8 +2353,8 @@ function $CompileProvider($provide, $$sanitizeUriProvider) {
 
         nodeName = nodeName_(this.$$element);
 
-        // Sanitize img[srcset] values.
-        if (nodeName === 'img' && key === 'srcset') {
+        // Sanitize img[srcset] + source[srcset] values. (`<source>`: CVE-2024-8373)
+        if ((nodeName === 'img' || nodeName === 'source') && key === 'srcset') {
           this[key] = value = sanitizeSrcset(value, '$set(\'srcset\', value)');
         }
 

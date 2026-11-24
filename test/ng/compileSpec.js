@@ -4175,7 +4175,7 @@ describe('$compile', function() {
       beforeEach(function() {
         module(function() {
           // Create directives that capture the `attr` object
-          ['input', 'a', 'img'].forEach(function(tag) {
+          ['input', 'a', 'img', 'source'].forEach(function(tag) {
             directive(tag, valueFn({
               restrict: 'ECA',
               link: function(scope, element, attr) {
@@ -4282,6 +4282,13 @@ describe('$compile', function() {
 
       it('should automatically sanitize img[srcset]', inject(function($compile, $rootScope) {
         element = $compile('<img></img>')($rootScope);
+        $rootScope.attr.$set('srcset', 'evil:foo()');
+        expect(element.attr('srcset')).toEqual('unsafe:evil:foo()');
+        expect($rootScope.attr.srcset).toEqual('unsafe:evil:foo()');
+      }));
+
+      it('should automatically sanitize source[srcset] (CVE-2024-8373)', inject(function($compile, $rootScope) {
+        element = $compile('<source></source>')($rootScope);
         $rootScope.attr.$set('srcset', 'evil:foo()');
         expect(element.attr('srcset')).toEqual('unsafe:evil:foo()');
         expect($rootScope.attr.srcset).toEqual('unsafe:evil:foo()');
@@ -11561,6 +11568,67 @@ describe('$compile', function() {
         expect(element.attr('srcset')).toEqual('someSanitizedUrl ,someSanitizedUrl');
       });
     });
+
+    it('should sanitize every url the browser would read from srcset (CVE-2024-8372)',
+      inject(function($rootScope, $compile) {
+        element = $compile('<img srcset="{{testUrl}}"></img>')($rootScope);
+        var testSet = {
+          // A url hidden after a descriptor that the old splitting did not recognise
+          'http://example.com/a.png 1.5x,evil:b': 'http://example.com/a.png 1.5x,unsafe:evil:b',
+          'http://example.com/a.png 1.5x,evil:b 2x, http://example.com/c.png':
+            'http://example.com/a.png 1.5x,unsafe:evil:b 2x,http://example.com/c.png',
+          'http://example.com/a.png 100h,evil:b': 'http://example.com/a.png 100h,unsafe:evil:b',
+          // Anything that is not a valid descriptor is dropped
+          'http://example.com/a.png 1x evil:b': 'http://example.com/a.png 1x',
+          'http://example.com/a.png evil:b': 'http://example.com/a.png',
+          'http://example.com/a.png 2x (evil:b, evil:c)': 'http://example.com/a.png 2x',
+          // Commas inside a url
+          'evil:a,b 1x': 'unsafe:evil:a,b 1x',
+          'http://example.com/a.png,, evil:b,': 'http://example.com/a.png ,unsafe:evil:b',
+          // Whitespace other than spaces
+          'http://example.com/a.png\t1x,\nevil:b\f2x': 'http://example.com/a.png 1x,unsafe:evil:b 2x'
+        };
+
+        forEach(testSet, function(ref, url) {
+          $rootScope.testUrl = url;
+          $rootScope.$digest();
+          expect(element.attr('srcset')).toEqual(ref);
+        });
+      })
+    );
+
+    it('should sanitize long srcset values quickly (CVE-2024-21490)', inject(function($rootScope, $compile) {
+      var spaces = new Array(50001).join(' ');
+      element = $compile('<img srcset="{{testUrl}}"></img>')($rootScope);
+      var start = Date.now();
+      $rootScope.testUrl = 'http://example.com/a.png' + spaces + 'x' + spaces + ',evil:b';
+      $rootScope.$digest();
+      expect(element.attr('srcset')).toEqual('http://example.com/a.png ,unsafe:evil:b');
+      $rootScope.testUrl = 'a' + new Array(20001).join(' 1x' + spaces.slice(0, 5)) + '!';
+      $rootScope.$digest();
+      expect(Date.now() - start).toBeLessThan(1000);
+    }));
+
+    it('should sanitize source[srcset] (CVE-2024-8373)', inject(function($rootScope, $compile) {
+      element = $compile('<picture><source srcset="{{testUrl}}"><source ng-srcset="{{testUrl}}"><img></picture>')($rootScope);
+      $rootScope.testUrl = 'http://example.com/a.png 1x, javascript:doEvilStuff() 2x';
+      $rootScope.$digest();
+      var sources = element.find('source');
+      expect(sources.eq(0).attr('srcset')).toEqual('http://example.com/a.png 1x,unsafe:javascript:doEvilStuff() 2x');
+      expect(sources.eq(1).attr('srcset')).toEqual('http://example.com/a.png 1x,unsafe:javascript:doEvilStuff() 2x');
+
+      $rootScope.testUrl = 'evil:changed';
+      $rootScope.$digest();
+      expect(sources.eq(0).attr('srcset')).toEqual('unsafe:evil:changed');
+      expect(sources.eq(1).attr('srcset')).toEqual('unsafe:evil:changed');
+    }));
+
+    it('should sanitize source[ng-attr-srcset] (CVE-2024-8373)', inject(function($rootScope, $compile) {
+      element = $compile('<picture><source ng-attr-srcset="{{testUrl}}"></picture>')($rootScope);
+      $rootScope.testUrl = 'evil:a 2x';
+      $rootScope.$digest();
+      expect(element.find('source').attr('srcset')).toEqual('unsafe:evil:a 2x');
+    }));
 
     it('should sanitize all uris in srcset', inject(function($rootScope, $compile) {
       element = $compile('<img srcset="{{testUrl}}"></img>')($rootScope);
