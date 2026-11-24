@@ -377,6 +377,31 @@ describe('HTML', function() {
                    '<svg xmlns="http://www.w3.org/2000/svg"><a xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="https://example.com"></a></svg>');
     });
 
+    describe('with a restricted image url list (CVE-2025-2336)', function() {
+      beforeEach(module(function($compileProvider) {
+        $compileProvider.imgSrcSanitizationTrustedUrlList(/^\s*https:\/\/images\.example\.com\//);
+      }));
+
+      it('should check svg image href and xlink:href against the image url list', function() {
+        expectHTML('<svg xmlns="http://www.w3.org/2000/svg"><image href="https://other.example.com/a.png"></image></svg>')
+          .toEqual('<svg xmlns="http://www.w3.org/2000/svg"><image></image></svg>');
+        expectHTML('<svg xmlns="http://www.w3.org/2000/svg"><image href="https://images.example.com/a.png"></image></svg>')
+          .toEqual('<svg xmlns="http://www.w3.org/2000/svg"><image href="https://images.example.com/a.png"></image></svg>');
+        expectHTML('<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image xlink:href="https://other.example.com/a.png"></image></svg>')
+          .toBeOneOf('<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image></image></svg>',
+                     '<svg xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg"><image></image></svg>',
+                     '<svg xmlns="http://www.w3.org/2000/svg"><image xmlns:xlink="http://www.w3.org/1999/xlink"></image></svg>');
+      });
+
+      it('should still check svg a xlink:href against the link url list', function() {
+        expectHTML('<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><a xlink:href="https://other.example.com"></a></svg>')
+          .toBeOneOf('<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><a xlink:href="https://other.example.com"></a></svg>',
+                     '<svg xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg"><a xlink:href="https://other.example.com"></a></svg>',
+                     '<svg xmlns="http://www.w3.org/2000/svg"><a xlink:href="https://other.example.com" xmlns:xlink="http://www.w3.org/1999/xlink"></a></svg>',
+                     '<svg xmlns="http://www.w3.org/2000/svg"><a xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="https://other.example.com"></a></svg>');
+      });
+    });
+
     it('should sanitize SVG xml:base attribute values', function() {
       expectHTML('<svg xmlns="http://www.w3.org/2000/svg"><a xml:base="javascript:alert(1)//" href="#"></a></svg>')
         .toEqual('<svg xmlns="http://www.w3.org/2000/svg"><a href="#"></a></svg>');
@@ -512,6 +537,17 @@ describe('HTML', function() {
         uriValidator.calls.reset();
         writer.start('someTag', {src:'someNonUrl'}, false);
         expect(uriValidator).not.toHaveBeenCalled();
+      });
+
+      it('should validate svg image href and xlink:href as image urls (CVE-2025-2336)', function() {
+        writer.start('image', {href:'someImgUrl'}, false);
+        expect(uriValidator).toHaveBeenCalledWith('someImgUrl', true);
+        uriValidator.calls.reset();
+        writer.start('image', {'xlink:href':'someOtherImgUrl'}, false);
+        expect(uriValidator).toHaveBeenCalledWith('someOtherImgUrl', true);
+        uriValidator.calls.reset();
+        writer.start('a', {'xlink:href':'someLinkUrl'}, false);
+        expect(uriValidator).toHaveBeenCalledWith('someLinkUrl', false);
       });
 
       it('should drop non valid uri attributes', function() {
