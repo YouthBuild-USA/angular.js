@@ -68,15 +68,40 @@ function currencyFilter($locale) {
       fractionSize = formats.PATTERNS[1].maxFrac;
     }
 
-    // If the currency symbol is empty, trim whitespace around the symbol
-    var currencySymbolRe = !currencySymbol ? /\s*\u00A4\s*/g : /\u00A4/g;
-
     // if null or undefined pass it through
     return (amount == null)
         ? amount
-        : formatNumber(amount, formats.PATTERNS[1], formats.GROUP_SEP, formats.DECIMAL_SEP, fractionSize).
-            replace(currencySymbolRe, currencySymbol);
+        : replaceCurrencySymbol(
+            formatNumber(amount, formats.PATTERNS[1], formats.GROUP_SEP, formats.DECIMAL_SEP, fractionSize),
+            currencySymbol);
   };
+}
+
+// Put `currencySymbol` in place of each `\u00A4` in `text`. If the currency symbol is empty, also
+// trim whitespace around each `\u00A4`. This used to be done with /\s*\u00A4\s*/g, which takes
+// quadratic time on long runs of whitespace in a locale pattern (CVE-2022-25844).
+function replaceCurrencySymbol(text, currencySymbol) {
+  var parts = text.split('\u00A4');
+  if (currencySymbol) return parts.join(currencySymbol);
+
+  for (var i = 0, ii = parts.length; i < ii; i++) {
+    var part = parts[i];
+    var start = 0;
+    var end = part.length;
+    if (i > 0) {
+      while (start < end && isWhitespaceChar(part.charAt(start))) start++;
+    }
+    if (i < ii - 1) {
+      while (end > start && isWhitespaceChar(part.charAt(end - 1))) end--;
+    }
+    parts[i] = part.slice(start, end);
+  }
+  return parts.join('');
+}
+
+var WHITESPACE_CHAR_REGEXP = /^\s$/;
+function isWhitespaceChar(ch) {
+  return WHITESPACE_CHAR_REGEXP.test(ch);
 }
 
 /**

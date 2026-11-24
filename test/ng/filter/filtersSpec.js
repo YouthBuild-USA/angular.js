@@ -199,6 +199,31 @@ describe('filters', function() {
         expect(currency(-1.07, '')).toBe('  --  1.07  --  ');
       })
     );
+
+    it('should trim whitespace around several currency symbols if the symbol is empty',
+      inject(function($locale) {
+        var pattern = $locale.NUMBER_FORMATS.PATTERNS[1];
+        pattern.posPre = ' \u00A4 \t\u00A4 x \u00A4';
+        pattern.posSuf = '';
+
+        expect(currency(1, '')).toBe('x1.00');
+        expect(currency(1, 'E')).toBe(' E \tE x E1.00');
+      })
+    );
+
+    it('should format quickly with long whitespace in the locale pattern (CVE-2022-25844)',
+      inject(function($locale) {
+        var spaces = new Array(50001).join(' ');
+        var pattern = $locale.NUMBER_FORMATS.PATTERNS[1];
+        pattern.posPre = '\u00A4' + spaces + 'x';
+        pattern.posSuf = spaces;
+
+        var start = Date.now();
+        expect(currency(1, '')).toBe('x1.00' + spaces);
+        expect(currency(1, '$')).toBe('$' + spaces + 'x1.00' + spaces);
+        expect(Date.now() - start).toBeLessThan(1000);
+      })
+    );
   });
 
   describe('number', function() {
