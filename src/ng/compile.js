@@ -2637,7 +2637,12 @@ function $CompileProvider($provide, $$sanitizeUriProvider) {
           compile.$$addScopeClass(attrs.$$element);
         }
 
+        // Support: IE 9-11 only
+        // Do not compile the content of a <textarea> in IE. IE can put the textarea's current value
+        // (e.g. text typed by a user, restored from the page cache, or the placeholder) into it as a
+        // text node, which would then be interpolated as an expression (CVE-2022-25869).
         childLinkFn = (nodeLinkFn && nodeLinkFn.terminal ||
+                      (msie && nodeName_(nodeList[i]) === 'textarea') ||
                       !(childNodes = nodeList[i].childNodes) ||
                       !childNodes.length)
             ? null

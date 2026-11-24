@@ -11495,6 +11495,44 @@ describe('$compile', function() {
     });
   });
 
+  describe('textarea content (CVE-2022-25869)', function() {
+    /* global msie: true */
+    var msieBackup;
+
+    beforeEach(function() {
+      msieBackup = msie;
+    });
+
+    afterEach(function() {
+      msie = msieBackup;
+    });
+
+    it('should not interpolate textarea content in Internet Explorer', inject(function($compile, $rootScope) {
+      msie = 11;
+      $rootScope.name = 'x';
+      element = $compile('<div><textarea>{{ name }} {{ 1 + 1 }}</textarea><span>{{ name }}</span></div>')($rootScope);
+      $rootScope.$digest();
+      expect(element.find('textarea').val()).toBe('{{ name }} {{ 1 + 1 }}');
+      expect(element.find('span').text()).toBe('x');
+    }));
+
+    it('should still interpolate textarea attributes in Internet Explorer', inject(function($compile, $rootScope) {
+      msie = 11;
+      $rootScope.name = 'x';
+      element = $compile('<textarea title="{{ name }}"></textarea>')($rootScope);
+      $rootScope.$digest();
+      expect(element.attr('title')).toBe('x');
+    }));
+
+    it('should keep interpolating textarea content in other browsers', inject(function($compile, $rootScope) {
+      msie = undefined;
+      $rootScope.name = 'x';
+      element = $compile('<div><textarea>{{ name }}</textarea></div>')($rootScope);
+      $rootScope.$digest();
+      expect(element.find('textarea').val()).toBe('x');
+    }));
+  });
+
   describe('img[srcset] sanitization', function() {
     it('should not error if srcset is undefined', function() {
       var linked = false;
