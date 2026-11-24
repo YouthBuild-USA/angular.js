@@ -614,8 +614,12 @@ angular.module('ngResource', ['ng']).
             }
             if (!(new RegExp('^\\d+$').test(param)) && param &&
               (new RegExp('(^|[^\\\\]):' + param + '(\\W|$)').test(url))) {
+              // Look for `=:param` only after the first `?`, without a `.*` regex that could
+              // be slow on a long url (CVE-2023-26117).
+              var queryStart = url.indexOf('?');
               urlParams[param] = {
-                isQueryParamValue: (new RegExp('\\?.*=:' + param + '(?:\\W|$)')).test(url)
+                isQueryParamValue: queryStart !== -1 &&
+                  (new RegExp('=:' + param + '(?:\\W|$)')).test(url.slice(queryStart))
               };
             }
           });
@@ -650,8 +654,13 @@ angular.module('ngResource', ['ng']).
           });
 
           // strip trailing slashes and set the url (unless this behavior is specifically disabled)
+          // (done with a loop, not /\/+$/, which is slow on urls with many slashes: CVE-2023-26117)
           if (self.defaults.stripTrailingSlashes) {
-            url = url.replace(/\/+$/, '') || '/';
+            var urlEnd = url.length;
+            while (urlEnd > 0 && url.charAt(urlEnd - 1) === '/') {
+              urlEnd--;
+            }
+            url = url.slice(0, urlEnd) || '/';
           }
 
           // Collapse `/.` if found in the last URL path segment before the query.

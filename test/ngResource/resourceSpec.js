@@ -368,6 +368,44 @@ describe('basic usage', function() {
     R.get({a: 'foo'});
   });
 
+  it('should strip many trailing slashes and keep a lone slash', function() {
+    var R = $resource('http://localhost:8080/Path/:a///');
+    $httpBackend.expect('GET', 'http://localhost:8080/Path/foo').respond();
+    R.get({a: 'foo'});
+
+    var Root = $resource('/');
+    $httpBackend.expect('GET', '/').respond();
+    Root.get();
+  });
+
+  it('should build urls with many slashes quickly (CVE-2023-26117)', function() {
+    var slashes = new Array(50001).join('/');
+    var R = $resource('/Path' + slashes + 'x/:a' + slashes);
+    var start = Date.now();
+    $httpBackend.expect('GET', '/Path' + slashes + 'x/foo').respond();
+    R.get({a: 'foo'});
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
+  it('should build urls with many question marks quickly (CVE-2023-26117)', function() {
+    var marks = new Array(30001).join('?');
+    var R = $resource('/Path/:a' + marks);
+    var start = Date.now();
+    $httpBackend.expect('GET', '/Path/foo' + marks).respond();
+    R.get({a: 'foo'});
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
+  it('should only treat a param as a query value when it comes after `?`', function() {
+    var R = $resource('/Path/:a?b=:b');
+    $httpBackend.expect('GET', '/Path/c%2Fd?b=e%2Ff').respond();
+    R.get({a: 'c/d', b: 'e/f'});
+
+    var R2 = $resource('/Path/x=:a');
+    $httpBackend.expect('GET', '/Path/x=c%2Fd').respond();
+    R2.get({a: 'c/d'});
+  });
+
   it('should support explicitly stripping trailing slashes from URLs', function() {
     var R = $resource('http://localhost:8080/Path/:a/', {}, {}, {stripTrailingSlashes: true});
 
