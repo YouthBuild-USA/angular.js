@@ -128,9 +128,78 @@
    </example>
  */
 angular.module('ngSanitize').filter('linky', ['$sanitize', function($sanitize) {
-  var LINKY_URL_REGEXP =
-        /((s?ftp|https?):\/\/|(www\.)|(mailto:)?[A-Za-z0-9._%+-]+@)\S*[^\s.;,(){}<>"\u201d\u2019]/i,
-      MAILTO_REGEXP = /^mailto:/i;
+  // Finds the same links as the old single regex
+  //   /((s?ftp|https?):\/\/|(www\.)|(mailto:)?[A-Za-z0-9._%+-]+@)\S*[^\s.;,(){}<>"\u201d\u2019]/i
+  // but in linear time. The email part of that regex was retried at every position of a long run
+  // of letters, which took quadratic time (CVE-2025-4690).
+  var LINKY_URL_REGEXP = /((s?ftp|https?):\/\/|(www\.))\S*[^\s.;,(){}<>"\u201d\u2019]/ig,
+      LINKY_EMAIL_CHAR_REGEXP = /^[A-Za-z0-9._%+-]$/,
+      LINKY_LAST_CHAR_REGEXP = /^[^\s.;,(){}<>"\u201d\u2019]$/,
+      WHITESPACE_REGEXP = /^\s$/,
+      MAILTO_PREFIX_REGEXP = /^mailto:$/i;
+
+  // Returns a function that, given a start position, returns the next link at or after it as
+  // `{index, text, scheme, www, mailto}`, or null. Positions must not go backwards.
+  function linkFinder(text) {
+    var urlMatch = null, urlSearchedFrom = -1;
+    var email = null, atSearchFrom = 0;
+
+    function nextUrl(pos) {
+      if (urlSearchedFrom === -1 || (urlMatch && urlMatch.index < pos) || (!urlMatch && urlSearchedFrom > pos)) {
+        LINKY_URL_REGEXP.lastIndex = pos;
+        urlMatch = LINKY_URL_REGEXP.exec(text);
+        urlSearchedFrom = pos;
+      }
+      return urlMatch;
+    }
+
+    // Finds the end of `\S*[^\s.;,(){}<>"\u201d\u2019]` starting at `from`, or -1.
+    function tailEnd(from) {
+      var end = from;
+      while (end < text.length && !WHITESPACE_REGEXP.test(text.charAt(end))) end++;
+      while (end > from && !LINKY_LAST_CHAR_REGEXP.test(text.charAt(end - 1))) end--;
+      return end > from ? end : -1;
+    }
+
+    function nextEmail(pos) {
+      while (true) {
+        if (email && email.runStart >= 0) {
+          var start = Math.max(email.runStart, pos);
+          if (start < email.at) {
+            var mailto = start >= pos + 7 && MAILTO_PREFIX_REGEXP.test(text.slice(start - 7, start));
+            if (mailto) start -= 7;
+            return {index: start, end: email.end, mailto: mailto};
+          }
+        }
+        // Find the next usable `@`.
+        var at = text.indexOf('@', Math.max(atSearchFrom, pos));
+        if (at === -1) {
+          email = null;
+          atSearchFrom = text.length;
+          return null;
+        }
+        atSearchFrom = at + 1;
+        var runStart = at;
+        while (runStart > 0 && LINKY_EMAIL_CHAR_REGEXP.test(text.charAt(runStart - 1))) runStart--;
+        var end = runStart < at ? tailEnd(at + 1) : -1;
+        email = {at: at, runStart: end === -1 ? -1 : runStart, end: end};
+      }
+    }
+
+    return function(pos) {
+      var url = nextUrl(pos);
+      var mail = nextEmail(pos);
+      if (url && (!mail || url.index <= mail.index)) {
+        return {index: url.index, text: url[0], scheme: url[2], www: url[3]};
+      }
+      if (mail) {
+        return {index: mail.index, text: text.slice(mail.index, mail.end), mailto: mail.mailto};
+      }
+      return null;
+    };
+  }
+
+  var MAILTO_REGEXP = /^mailto:/i;
 
   var linkyMinErr = angular.$$minErr('linky');
   var isDefined = angular.isDefined;
@@ -147,24 +216,23 @@ angular.module('ngSanitize').filter('linky', ['$sanitize', function($sanitize) {
       isObject(attributes) ? function getAttributesObject() {return attributes;} :
       function getEmptyAttributesObject() {return {};};
 
-    var match;
-    var raw = text;
+    var link;
+    var findLink = linkFinder(text);
+    var pos = 0;
     var html = [];
     var url;
-    var i;
-    while ((match = raw.match(LINKY_URL_REGEXP))) {
+    while ((link = findLink(pos))) {
       // We can not end in these as they are sometimes found at the end of the sentence
-      url = match[0];
+      url = link.text;
       // if we did not match ftp/http/www/mailto then assume mailto
-      if (!match[2] && !match[4]) {
-        url = (match[3] ? 'http://' : 'mailto:') + url;
+      if (!link.scheme && !link.mailto) {
+        url = (link.www ? 'http://' : 'mailto:') + url;
       }
-      i = match.index;
-      addText(raw.substr(0, i));
-      addLink(url, match[0].replace(MAILTO_REGEXP, ''));
-      raw = raw.substring(i + match[0].length);
+      addText(text.substring(pos, link.index));
+      addLink(url, link.text.replace(MAILTO_REGEXP, ''));
+      pos = link.index + link.text.length;
     }
-    addText(raw);
+    addText(text.substring(pos));
     return $sanitize(html.join(''));
 
     function addText(text) {

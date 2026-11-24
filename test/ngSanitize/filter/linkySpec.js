@@ -79,6 +79,25 @@ describe('linky', function() {
       toEqual('my email is &#34;<a href="mailto:me@example.com">me@example.com</a>&#34;');
   });
 
+  it('should find links in the same places as before', function() {
+    expect(linky('xwww.a@b.c www.d.e')).toEqual(
+      '<a href="mailto:xwww.a@b.c">xwww.a@b.c</a> <a href="http://www.d.e">www.d.e</a>');
+    expect(linky('a MAILTO:me@x.y, b@c.d.')).toEqual(
+      'a <a href="MAILTO:me@x.y">me@x.y</a>, <a href="mailto:b@c.d">b@c.d</a>.');
+    expect(linky('@x a@. b@c http://d/@e')).toEqual(
+      '@x a@. <a href="mailto:b@c">b@c</a> <a href="http://d/@e">http://d/@e</a>');
+    expect(linky('mailto:a@b@c')).toEqual('<a href="mailto:a@b@c">a@b@c</a>');
+  });
+
+  it('should handle long text quickly (CVE-2025-4690)', function() {
+    var letters = new Array(50001).join('a');
+    var start = Date.now();
+    expect(linky(letters + '!')).toEqual(letters + '!');
+    expect(linky(letters + '@b')).toEqual('<a href="mailto:' + letters + '@b">' + letters + '@b</a>');
+    expect(linky(new Array(10001).join('www.a ') + '@')).toContain('<a href="http://www.a">www.a</a> @');
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
   it('should handle quotes in the email', function() {
     expect(linky('foo@"bar".com')).toEqual('<a href="mailto:foo@&#34;bar&#34;.com">foo@&#34;bar&#34;.com</a>');
   });
